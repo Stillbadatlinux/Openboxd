@@ -1,7 +1,8 @@
 import "server-only";
 import type { Film, Prisma } from "@prisma/client";
 import { db } from "./db";
-import { movieDetails, searchMovies, TmdbError, yearOf, type TmdbMovieDetails } from "./tmdb";
+import { scoreCandidate } from "./match";
+import { movieDetails, searchMovies, TmdbError, yearOf, type TmdbMovieDetails, type TmdbMovieSummary } from "./tmdb";
 
 const STALE_AFTER_MS = 1000 * 60 * 60 * 24 * 30; // refresh cached metadata monthly
 
@@ -48,19 +49,32 @@ export async function ensureFilm(id: number): Promise<Film | null> {
   }
 }
 
-/** Finds the best TMDB match for a title + year (used by the Letterboxd import). */
-export async function matchFilm(title: string, year?: number | null): Promise<Film | null> {
+/** The best TMDB search result for a title + year, or null if nothing is a convincing match. */
+export async function bestMatch(title: string, year?: number | null): Promise<TmdbMovieSummary | null> {
   const clean = title.trim();
   if (!clean) return null;
-  let results = (await searchMovies(clean, 1, year ?? undefined)).results;
-  if (!results.length && year) results = (await searchMovies(clean)).results;
-  if (!results.length) return null;
 
-  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-  const target = norm(clean);
-  const best =
-    results.find((r) => norm(r.title) === target && (!year || yearOf(r.release_date) === year)) ??
-    results.find((r) => !year || Math.abs((yearOf(r.release_date) ?? 0) - year) <= 1) ??
-    results[0];
-  return ensureFilm(best.id);
+  // Search with the year and without it, then pick the best-scoring result from both.
+  const [withYear, anyYear] = await Promise.all([
+    year ? searchMovies(clean, 1, year).then((r) => r.results) : Promise.resolve([]),
+    searchMovies(clean).then((r) => r.results),
+  ]);
+  const seen = new Set<number>();
+  const candidates = [...withYear, ...anyYear].filter((r) => !seen.has(r.id) && seen.add(r.id));
+  if (!candidates.length) return null;
+
+  const ranked = candidates
+    .map((r, order) => ({ r, order, ...scoreCandidate({ title: clean, year }, r) }))
+    .sort((a, b) => b.score - a.score || a.order - b.order);
+  const best = ranked[0];
+
+  // Without any title agreement, only trust a same-year hit; otherwise report it as unmatched.
+  if (!best.exact && !best.partial && best.gap !== 0) return null;
+  return best.r;
+}
+
+/** Finds the best TMDB match for a title + year and caches it (used by the Letterboxd import). */
+export async function matchFilm(title: string, year?: number | null): Promise<Film | null> {
+  const hit = await bestMatch(title, year);
+  return hit ? ensureFilm(hit.id) : null;
 }
