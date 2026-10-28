@@ -23,7 +23,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://app:app@localhost:5432/app
-      DIRECT_URL: postgresql://app:app@localhost:5432/app
+      DATABASE_URL_UNPOOLED: postgresql://app:app@localhost:5432/app
       AUTH_SECRET: ci-only-secret
       TMDB_API_KEY: mock
       TMDB_API_BASE: http://127.0.0.1:4010/3

@@ -35,7 +35,7 @@ Fill in `.env`:
 | Variable | What it's for |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string the app uses. |
-| `DIRECT_URL` | Non-pooled connection string used by migrations. Locally, same as `DATABASE_URL`. |
+| `DATABASE_URL_UNPOOLED` | Direct (non-pooled) connection string used by migrations. Locally, same as `DATABASE_URL`. |
 | `AUTH_SECRET` | Signs session cookies. Generate with `npx auth secret` or `openssl rand -base64 32`. |
 | `TMDB_API_KEY` | Free from [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). Either the v3 API key or the v4 Read Access Token works. |
 | `NEXT_PUBLIC_SITE_NAME` | Optional. The site's display name. |
@@ -54,16 +54,16 @@ npm run dev         # in another
 
 ## Deploy for free (Vercel + Neon)
 
-1. **Push this repo to GitHub** (you're probably already there).
-2. **Create a database** at [neon.tech](https://neon.tech) (free tier). Copy two connection strings: the *pooled* one (host contains `-pooler`) and the *direct* one.
-3. **Import the repo on [vercel.com/new](https://vercel.com/new).** Framework preset: Next.js. Before the first deploy, add these environment variables:
-   - `DATABASE_URL` = Neon pooled connection string
-   - `DIRECT_URL` = Neon direct connection string
+1. **Get a TMDB key.** Sign up at [themoviedb.org](https://www.themoviedb.org/signup), then request an API key under Settings → API. Copy the *API Read Access Token*.
+2. **Import the repo** at [vercel.com/new](https://vercel.com/new). Leave the framework as Next.js. Under Environment Variables, add:
    - `AUTH_SECRET` = a random secret (`openssl rand -base64 32`)
-   - `TMDB_API_KEY` = your TMDB key
-4. **Deploy.** The `vercel-build` script runs `prisma migrate deploy` before building, so the tables are created on the first deploy and kept up to date on later ones.
+   - `TMDB_API_KEY` = your TMDB token
 
-Supabase works the same way: use its "Transaction pooler" string for `DATABASE_URL` and the direct string for `DIRECT_URL`.
+   Click Deploy. This first build fails because there's no database yet. That's expected.
+3. **Add the database.** In the Vercel project, open the Storage tab, choose Neon, pick the free plan and a region near your users, and connect it to the project. Vercel adds `DATABASE_URL` and `DATABASE_URL_UNPOOLED` for you.
+4. **Redeploy** (Deployments → the failed deployment → Redeploy). The build runs `prisma migrate deploy`, which creates the tables, and the site goes live at `your-project.vercel.app`.
+
+Using Neon or Supabase directly instead? Set `DATABASE_URL` to the pooled connection string and `DATABASE_URL_UNPOOLED` to the direct one.
 
 ### Self-hosting elsewhere
 
