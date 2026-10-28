@@ -12,11 +12,11 @@ export default async function ImportPage() {
       <div className="mb-8 grid gap-2 text-muted">
         <p>
           On Letterboxd, go to Settings, then Data, and choose Export your data. You&apos;ll get a .zip file. Upload it here
-          as it is.
+          as it is, or, if your computer unzipped it into a folder, choose that folder.
         </p>
         <p>
-          We bring in watched films, ratings, liked films, your watchlist, diary entries and reviews. Lists, tags and
-          comments aren&apos;t imported yet. Running the same import twice won&apos;t create duplicates.
+          We bring in watched films, ratings, liked films, your watchlist, diary entries, reviews and your four favourite
+          films. Lists, tags and comments aren&apos;t imported yet. Running the same import twice won&apos;t create duplicates.
         </p>
       </div>
       <ImportFlow username={viewer.username} />

@@ -4,17 +4,35 @@ import Papa from "papaparse";
 import { unzipSync, strFromU8 } from "fflate";
 import Link from "next/link";
 import { useState } from "react";
-import { importChunk } from "@/app/actions/import";
-import { IMPORT_LABELS, IMPORT_ORDER, kindFromFilename, toImportRow, type ImportKind, type ImportRow } from "@/lib/import-types";
+import { importChunk, importFavorites } from "@/app/actions/import";
+import {
+  IMPORT_LABELS,
+  IMPORT_ORDER,
+  kindFromFilename,
+  resolveFavorites,
+  toImportRow,
+  type ImportKind,
+  type ImportRow,
+} from "@/lib/import-types";
 
 const CHUNK = 20;
 
 type Parsed = Partial<Record<ImportKind, ImportRow[]>>;
 type Progress = Partial<Record<ImportKind, { done: number; imported: number }>>;
 
-function parseCsv(text: string) {
-  const out = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
-  return out.data.map(toImportRow).filter((r): r is ImportRow => r !== null);
+type Favorite = { name: string; year?: string };
+
+function parseRecords(text: string) {
+  return Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true }).data;
+}
+
+function toRows(records: Record<string, string>[]) {
+  return records.map(toImportRow).filter((r): r is ImportRow => r !== null);
+}
+
+/** Pick the path to classify: inside a zip it's the entry path; from a folder, the path within it. */
+function pathOf(file: File) {
+  return file.webkitRelativePath || file.name;
 }
 
 export function ImportFlow({ username }: { username: string }) {
@@ -24,17 +42,29 @@ export function ImportFlow({ username }: { username: string }) {
   const [missed, setMissed] = useState<string[]>([]);
   const [phase, setPhase] = useState<"pick" | "ready" | "running" | "done">("pick");
   const [error, setError] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [favoritesSet, setFavoritesSet] = useState(0);
 
   async function readFiles(files: FileList | null) {
     if (!files?.length) return;
     setError(null);
     const next: Parsed = { ...parsed };
     const skipped: string[] = [];
+    const allRecords: Record<string, string>[] = [];
+    let profile: Record<string, string> | undefined;
     const take = (path: string, text: string) => {
       if (/(^|\/)(deleted|orphaned)\//i.test(path)) return;
+      const base = path.toLowerCase().split("/").pop() ?? "";
+      if (base === "profile.csv") {
+        profile = parseRecords(text)[0];
+        return;
+      }
       const kind = kindFromFilename(path);
-      if (kind) next[kind] = parseCsv(text);
-      else if (path.toLowerCase().endsWith(".csv")) skipped.push(path);
+      if (kind) {
+        const records = parseRecords(text);
+        allRecords.push(...records);
+        next[kind] = toRows(records);
+      } else if (base.endsWith(".csv")) skipped.push(path.split("/").slice(-2).join("/"));
     };
     try {
       for (const file of Array.from(files)) {
@@ -42,7 +72,7 @@ export function ImportFlow({ username }: { username: string }) {
           const entries = unzipSync(new Uint8Array(await file.arrayBuffer()));
           for (const [path, data] of Object.entries(entries)) take(path, strFromU8(data));
         } else {
-          take(file.name, await file.text());
+          take(pathOf(file), await file.text());
         }
       }
     } catch {
@@ -51,6 +81,7 @@ export function ImportFlow({ username }: { username: string }) {
     }
     setParsed(next);
     setIgnored(skipped);
+    setFavorites(resolveFavorites(profile, allRecords));
     setPhase(Object.keys(next).length ? "ready" : "pick");
     if (!Object.keys(next).length) setError("None of those files look like a Letterboxd export. Look for diary.csv, ratings.csv or watched.csv.");
   }
@@ -75,6 +106,10 @@ export function ImportFlow({ username }: { username: string }) {
         setProgress((p) => ({ ...p, [kind]: { done: Math.min(rows.length, i + CHUNK), imported } }));
       }
     }
+    if (favorites.length) {
+      const res = await importFavorites(favorites).catch(() => ({ set: 0 }));
+      setFavoritesSet(res.set);
+    }
     setMissed([...new Set(allMissed)]);
     setPhase("done");
   }
@@ -86,11 +121,23 @@ export function ImportFlow({ username }: { username: string }) {
   return (
     <div className="grid gap-6">
       {phase !== "running" && phase !== "done" && (
-        <label className="block cursor-pointer rounded-xl border-2 border-dashed border-rule bg-surface px-6 py-10 text-center hover:border-usher">
-          <span className="display block text-xl">Choose your export</span>
-          <span className="mt-1 block text-sm text-muted">The .zip file, or the .csv files from inside it</span>
-          <input type="file" accept=".zip,.csv,text/csv,application/zip" multiple className="sr-only" onChange={(e) => readFiles(e.target.files)} />
-        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block cursor-pointer rounded-xl border-2 border-dashed border-rule bg-surface px-6 py-8 text-center hover:border-usher focus-within:border-usher">
+            <span className="display block text-xl">Choose the folder</span>
+            <span className="mt-1 block text-sm text-muted">If your computer unzipped the export</span>
+            <input
+              type="file"
+              className="sr-only"
+              onChange={(e) => readFiles(e.target.files)}
+              {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+            />
+          </label>
+          <label className="block cursor-pointer rounded-xl border-2 border-dashed border-rule bg-surface px-6 py-8 text-center hover:border-usher focus-within:border-usher">
+            <span className="display block text-xl">Choose the .zip</span>
+            <span className="mt-1 block text-sm text-muted">Or select the .csv files themselves</span>
+            <input type="file" accept=".zip,.csv,text/csv,application/zip" multiple className="sr-only" onChange={(e) => readFiles(e.target.files)} />
+          </label>
+        </div>
       )}
       {error && <p role="alert" className="text-sm text-heart">{error}</p>}
 
@@ -117,6 +164,12 @@ export function ImportFlow({ username }: { username: string }) {
               );
             })}
           </ul>
+          {favorites.length > 0 && (
+            <p className="border-t border-rule px-4 py-2 text-sm">
+              <span className="font-semibold">Favourite films:</span>{" "}
+              <span className="text-muted">{favorites.map((f) => f.name).join(", ")}</span>
+            </p>
+          )}
           {ignored.length > 0 && <p className="border-t border-rule px-4 py-2 text-xs text-muted">Skipped (not supported yet): {ignored.join(", ")}</p>}
         </div>
       )}
@@ -140,7 +193,8 @@ export function ImportFlow({ username }: { username: string }) {
         <div role="status" className="rounded-xl border border-rule bg-surface p-5">
           <p className="display text-2xl">Import finished</p>
           <p className="mt-1 text-muted">
-            Your films, diary and watchlist are in.{" "}
+            Your films, diary and watchlist are in
+            {favoritesSet > 0 ? ", and your favourite films are on your profile" : ""}.{" "}
             <Link href={`/u/${username}`} className="link">
               Go to your profile
             </Link>

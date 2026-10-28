@@ -99,3 +99,19 @@ export async function importChunk(kind: ImportKind, rows: ImportRow[]): Promise<
   revalidatePath("/", "layout");
   return { imported, missed };
 }
+
+/** Sets profile favourites from the export's profile.csv, unless the member already chose some. */
+export async function importFavorites(films: { name: string; year?: string }[]): Promise<{ set: number }> {
+  const viewer = await getViewer();
+  if (!viewer || !films.length) return { set: 0 };
+  const user = await db.user.findUnique({ where: { id: viewer.id }, select: { favoriteFilmIds: true } });
+  if (user?.favoriteFilmIds.length) return { set: 0 };
+  const ids: number[] = [];
+  for (const f of films.slice(0, 4)) {
+    const film = await matchFilm(f.name, Number(f.year) || null).catch(() => null);
+    if (film && !ids.includes(film.id)) ids.push(film.id);
+  }
+  if (ids.length) await db.user.update({ where: { id: viewer.id }, data: { favoriteFilmIds: ids } });
+  revalidatePath("/", "layout");
+  return { set: ids.length };
+}
