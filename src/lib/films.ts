@@ -64,7 +64,7 @@ export async function bestMatch(title: string, year?: number | null): Promise<Tm
   if (!candidates.length) return null;
 
   const ranked = candidates
-    .map((r, order) => ({ r, order, ...scoreCandidate({ title: clean, year }, r) }))
+    .map((r, order) => ({ r, order, ...scoreCandidate({ title: clean, year }, r, withYear[0]?.id === r.id) }))
     .sort((a, b) => b.score - a.score || a.order - b.order);
   const best = ranked[0];
 

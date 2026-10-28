@@ -24,6 +24,8 @@ export function normTitle(s: string) {
 export function scoreCandidate(
   target: { title: string; year?: number | null },
   r: { title: string; original_title?: string; release_date?: string },
+  /** True for the first result of TMDB's year-filtered search, which also matches alternative titles. */
+  topOfYearSearch = false,
 ) {
   const want = normTitle(target.title);
   const titles = [r.title, r.original_title].filter(Boolean).map((t) => normTitle(t!));
@@ -31,8 +33,11 @@ export function scoreCandidate(
   const partial = !exact && want.length >= 4 && titles.some((t) => t.length >= 4 && (t.includes(want) || want.includes(t)));
   const y = yearOf(r.release_date);
   const gap = target.year && y ? Math.abs(y - target.year) : null;
-  const titleScore = exact ? 10 : partial ? 3 : 0;
+  // TMDB ranks a film first for "title + year" when one of its alternative titles matches (e.g. "Dear Diary"
+  // is an alternative title of "Caro diario"), so that ranking counts almost as much as a visible title match.
+  const altTitle = !exact && !partial && topOfYearSearch && gap === 0;
+  const titleScore = exact ? 10 : altTitle ? 8 : partial ? 3 : 0;
   // A title match decades away is a different film (remakes, reused titles), so a large gap outweighs it.
   const yearScore = gap === null ? 0 : gap === 0 ? 3 : gap === 1 ? 2 : gap <= 3 ? 0 : -12;
-  return { score: titleScore + yearScore, exact, partial, gap };
+  return { score: titleScore + yearScore, exact, partial: partial || altTitle, gap };
 }
