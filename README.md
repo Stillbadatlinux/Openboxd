@@ -22,8 +22,8 @@ Built with Next.js, PostgreSQL (via Prisma) and film data from [TMDB](https://ww
 Requirements: Node 20.9+, PostgreSQL 14+.
 
 ```bash
-git clone https://github.com/OWNER/REPO.git
-cd REPO
+git clone https://github.com/Stillbadatlinux/Openboxd.git
+cd Openboxd
 npm install
 cp .env.example .env        # then fill it in (see below)
 npx prisma migrate dev      # creates the tables
